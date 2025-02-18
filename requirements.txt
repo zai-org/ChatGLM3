@@ -14,6 +14,8 @@ loguru~=0.7.2
 mdtex2html>=1.3.0
 latex2mathml>=3.77.0
 jupyter_client>=8.6.1
+peft==0.13.2
+
 
 # for openai demo
 openai>=1.30.1
