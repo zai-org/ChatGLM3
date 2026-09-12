@@ -1,9 +1,28 @@
+import ast
 import gc
 import json
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizer
 from transformers.generation.logits_process import LogitsProcessor
 from typing import Union, Tuple
+
+
+def _safe_tool_call_expr(content: str, tool_call):
+    """Parse `tool_call(k=v, ...)` from model text. No eval()."""
+    tree = ast.parse(content, mode="eval")
+    node = tree.body
+    if not isinstance(node, ast.Call):
+        raise ValueError("tool call must be a call expression")
+    if not isinstance(node.func, ast.Name) or node.func.id != "tool_call":
+        raise ValueError("only tool_call(...) is allowed")
+    if node.args:
+        raise ValueError("tool_call positional args are not allowed")
+    kwargs = {}
+    for kw in node.keywords:
+        if kw.arg is None:
+            raise ValueError("tool_call **kwargs is not allowed")
+        kwargs[kw.arg] = ast.literal_eval(kw.value)
+    return tool_call(**kwargs)
 
 
 class InvalidScoreLogitsProcessor(LogitsProcessor):
@@ -30,7 +49,7 @@ def process_response(output: str, use_tool: bool = False) -> Union[str, dict]:
                 def tool_call(**kwargs):
                     return kwargs
 
-                parameters = eval(content)
+                parameters = _safe_tool_call_expr(content, tool_call)
                 content = {
                     "name": metadata.strip(),
                     "arguments": json.dumps(parameters, ensure_ascii=False)

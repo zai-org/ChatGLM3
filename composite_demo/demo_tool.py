@@ -1,3 +1,4 @@
+import ast
 import re
 import yaml
 from yaml import YAMLError
@@ -26,6 +27,24 @@ EXAMPLE_TOOL = {
 }
 
 client = get_client()
+
+
+def _safe_tool_call_expr(content: str, tool_call_fn):
+    """Parse `tool_call(k=v, ...)` from model text. No eval()."""
+    tree = ast.parse(content, mode="eval")
+    node = tree.body
+    if not isinstance(node, ast.Call):
+        raise ValueError("tool call must be a call expression")
+    if not isinstance(node.func, ast.Name) or node.func.id != "tool_call":
+        raise ValueError("only tool_call(...) is allowed")
+    if node.args:
+        raise ValueError("tool_call positional args are not allowed")
+    kwargs = {}
+    for kw in node.keywords:
+        if kw.arg is None:
+            raise ValueError("tool_call **kwargs is not allowed")
+        kwargs[kw.arg] = ast.literal_eval(kw.value)
+    return tool_call_fn(**kwargs)
 
 
 def tool_call(*args, **kwargs) -> dict:
@@ -171,7 +190,7 @@ def main(
 
                             try:
                                 code = extract_code(call_args_text)
-                                args = eval(code, {'tool_call': tool_call}, {})
+                                args = _safe_tool_call_expr(code, tool_call)
                             except:
                                 st.error('Failed to parse tool call')
                                 return
